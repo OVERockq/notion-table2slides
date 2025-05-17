@@ -1,0 +1,40 @@
+{
+  "manifest_version": 3,
+  "name": "Notion Table to Slideshow",
+  "description": "Notion 페이지의 테이블을 슬라이드쇼로 변환하여 보여주는 크롬 확장 프로그램입니다.",
+  "version": "1.0",
+  "permissions": ["activeTab", "scripting", "tabs", "storage"],
+  "icons": {
+    "16": "icon.png", 
+    "32": "icon.png",
+    "48": "icon.png",
+    "128": "icon.png"
+  },
+  "action": {
+    "default_icon": {
+      "16": "icon.png",
+      "32": "icon.png", 
+      "48": "icon.png",
+      "128": "icon.png"
+    }
+  },
+  "background": {
+    "service_worker": "popup.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.notion.so/*"],
+      "js": ["content.js"]
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": ["slide.js"]
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["slide.html", "slide.js", "slide.css"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}
