@@ -1,7 +1,18 @@
 // 전역 변수 선언
 let currentSlide = 0;
 let slides = [];
-let autoRefresh = false; // 자동 새로고침 상태 저장
+let autoRefresh = true; // 자동 새로고침 상태 저장 (기본값 true)
+let columnTitles = []; // 컬럼 타이틀 전역 저장
+
+// 네비게이션 표시/숨김 함수 (전역)
+function showNavigation() {
+    const navigation = document.querySelector('.navigation');
+    if (navigation) navigation.classList.add('show');
+}
+function hideNavigation() {
+    const navigation = document.querySelector('.navigation');
+    if (navigation) navigation.classList.remove('show');
+}
 
 // 슬라이드 네비게이션 객체
 const slideNavigation = {
@@ -37,14 +48,124 @@ function updateSlideContent() {
     const nextSlide = currentSlide < slides.length - 1 ? slides[currentSlide + 1] : null;
     const nextSlideTitle = nextSlide ? `Next : ${nextSlide.title || nextSlide.content}` : '';
 
+    // 타이틀의 font-size 등 폰트 관련 스타일 제거 함수
+    function sanitizeTitleHTML(html) {
+        const temp = document.createElement('div');
+        temp.innerHTML = html;
+        function clean(node) {
+            if (node.nodeType === Node.ELEMENT_NODE && node.style) {
+                node.style.removeProperty('font-size');
+                node.style.removeProperty('font-family');
+                node.style.removeProperty('font-weight'); // 폰트 굵기는 유지하려면 이 줄은 삭제
+            }
+            Array.from(node.childNodes).forEach(clean);
+        }
+        Array.from(temp.childNodes).forEach(clean);
+        return temp.innerHTML;
+    }
+
+    // 컬럼 콘텐츠의 폰트 관련 스타일 제거 함수
+    function sanitizeContentHTML(html) {
+        const temp = document.createElement('div');
+        temp.innerHTML = html;
+        function clean(node) {
+            // 허용할 태그
+            const allowedTags = ['B', 'STRONG', 'I', 'EM', 'U', 'SPAN'];
+            if (node.nodeType === Node.ELEMENT_NODE) {
+                if (!allowedTags.includes(node.nodeName)) {
+                    const parent = node.parentNode;
+                    while (node.firstChild) parent.insertBefore(node.firstChild, node);
+                    parent.removeChild(node);
+                    return;
+                }
+                // 불필요한 속성 제거
+                node.removeAttribute('class');
+                node.removeAttribute('data-token-index');
+                node.removeAttribute('contenteditable');
+                node.removeAttribute('tabindex');
+                node.removeAttribute('role');
+                node.removeAttribute('aria-label');
+                node.removeAttribute('placeholder');
+                node.removeAttribute('spellcheck');
+                node.removeAttribute('data-content-editable-leaf');
+                // 폰트 관련 스타일 제거
+                if (node.style) {
+                    node.style.removeProperty('font-size');
+                    node.style.removeProperty('font-family');
+                    node.style.removeProperty('line-height');
+                    node.style.removeProperty('padding');
+                    node.style.removeProperty('max-width');
+                    node.style.removeProperty('width');
+                    node.style.removeProperty('white-space');
+                    node.style.removeProperty('word-break');
+                    node.style.removeProperty('caret-color');
+                    node.style.removeProperty('background');
+                }
+            }
+            Array.from(node.childNodes).forEach(clean);
+        }
+        Array.from(temp.childNodes).forEach(clean);
+        return temp.innerHTML;
+    }
+
+    // 표지(타이틀)에서 notion-table-cell의 모든 스타일 제거 함수
+    function sanitizeCoverHTML(html) {
+        const temp = document.createElement('div');
+        temp.innerHTML = html;
+        const cells = temp.querySelectorAll('.notion-table-cell');
+        cells.forEach(cell => {
+            if (cell.hasAttribute('style')) cell.removeAttribute('style');
+        });
+        // notion-table-cell-text notranslate 스타일 제거 및 표지 스타일 적용
+        const texts = temp.querySelectorAll('.notion-table-cell-text.notranslate');
+        texts.forEach(text => {
+            text.removeAttribute('style');
+            text.style.fontSize = '1.5em';
+            text.style.fontWeight = 'bold';
+            text.style.color = 'white';
+            text.classList.add('cover-title-text');
+        });
+        return temp.innerHTML;
+    }
+
+    // Next: 다음장 타이틀 스타일 정제 함수
+    function sanitizeNextTitleHTML(html) {
+        const temp = document.createElement('div');
+        temp.innerHTML = html;
+        // 모든 스타일 제거
+        function clean(node) {
+            if (node.nodeType === Node.ELEMENT_NODE) {
+                node.removeAttribute('style');
+                node.removeAttribute('class');
+                node.removeAttribute('data-token-index');
+                node.removeAttribute('contenteditable');
+                node.removeAttribute('tabindex');
+                node.removeAttribute('role');
+                node.removeAttribute('aria-label');
+                node.removeAttribute('placeholder');
+                node.removeAttribute('spellcheck');
+                node.removeAttribute('data-content-editable-leaf');
+            }
+            Array.from(node.childNodes).forEach(clean);
+        }
+        Array.from(temp.childNodes).forEach(clean);
+        // 스타일 적용
+        const span = document.createElement('span');
+        span.style.color = 'white';
+        span.style.fontWeight = 'bold';
+        span.style.fontSize = '1.25em';
+        span.innerHTML = temp.innerHTML;
+        return span.outerHTML;
+    }
+
     if (slide.type === 'mainTitle') {
         // 메인 타이틀 슬라이드
         slideHTML = `
             <div class="slide title-slide">
                 <div class="content">
-                    <h1>${slide.content}</h1>
+                    <h1>${sanitizeCoverHTML(slide.content)}</h1>
                 </div>
-                ${nextSlide ? `<p class="next-slide-title">${nextSlideTitle}</p>` : ''}
+                ${nextSlide ? `<span class="next-slide-title">${sanitizeNextTitleHTML(nextSlideTitle)}</span>` : ''}
             </div>
         `;
     } else {
@@ -53,26 +174,26 @@ function updateSlideContent() {
             <div class="slide content-slide">
                 <div class="main-content">
                     <div class="side-title">
-                        <h2 class="${slide.isHeader ? 'header-title' : ''}">${processText(slide.title)}</h2>
+                        <h2 class="${slide.isHeader ? 'header-title' : ''}" style="white-space:pre-wrap;">${sanitizeTitleHTML(slide.title)}</h2>
                         <p class="page-title">${slide.pageTitle}</p>
                     </div>
                     <div class="content-columns">
                         <div class="column share-column">
-                            <h3>${slide.columnTitles?.[1] || '전체 공유사항'}</h3>
+                            <h3>${columnTitles[1]}</h3>
                             <div class="column-content">
-                                <p class="slide-text">${processText(slide.shareContent).replace(/\n/g, '<br>').replace(/([.!?])\s+/g, '$1<br>')}</p>
+                                <span class="slide-text" style="display:block;">${sanitizeContentHTML(slide.shareContent)}</span>
                             </div>
                         </div>
                         <div class="column issue-column">
-                            <h3>${slide.columnTitles?.[2] || '이슈사항'}</h3>
+                            <h3>${columnTitles[2]}</h3>
                             <div class="column-content">
-                                <p class="slide-text">${slide.issueContent ? processText(slide.issueContent).replace(/\n/g, '<br>') : ''}</p>
+                                <span class="slide-text" style="display:block;">${sanitizeContentHTML(slide.issueContent || '')}</span>
                             </div>
                         </div>
                     </div>
                 </div>
                 <div class="bottom-area">
-                    ${nextSlide ? `<p class="next-slide-title">${nextSlideTitle}</p>` : ''}
+                    ${nextSlide ? `<p class="next-slide-title">${sanitizeNextTitleHTML(nextSlideTitle)}</p>` : ''}
                 </div>
             </div>
         `;
@@ -82,6 +203,7 @@ function updateSlideContent() {
     
     // 현재 설정된 스타일 적용
     applySettings();
+    updateTextStyle();
 }
 
 // 슬라이드 카운터 업데이트
@@ -102,8 +224,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 // 슬라이드 렌더링 함수
 function renderSlides(slideData) {
-    const { pageTitle, contents, columnTitles } = slideData;
-    
+    const { pageTitle, columnTitles: ct, contents } = slideData;
+    columnTitles = ct || [];
     // 모든 슬라이드 데이터 구성
     slides = [
         // 첫 번째 슬라이드 (메인 타이틀 페이지)
@@ -118,7 +240,6 @@ function renderSlides(slideData) {
             title: content.title,
             content: content.content,
             pageTitle: pageTitle,
-            columnTitles: columnTitles, // 컬럼 제목 추가
             shareContent: content.shareContent,
             issueContent: content.issueContent
         }))
@@ -151,6 +272,11 @@ function renderNavigation() {
                 <button id="nextButton" class="nav-button">다음</button>
             </div>
             <div class="button-group">
+                <button id="increaseFontSize" class="util-button" title="글자 크게">A+</button>
+                <button id="decreaseFontSize" class="util-button" title="글자 작게">A-</button>
+                <button id="increaseLineHeight" class="util-button" title="행간 넓게">↕+</button>
+                <button id="decreaseLineHeight" class="util-button" title="행간 좁게">↕-</button>
+                <span class="nav-divider"></span>
                 <button id="refreshButton" class="util-button">🔄 새로고침</button>
                 <button id="fullscreenButton" class="util-button">전체화면</button>
                 <button id="settingsButton" class="util-button">설정</button>
@@ -188,6 +314,10 @@ function renderNavigation() {
     const darkModeButton = document.getElementById('darkModeButton');
     const pinNav = document.getElementById('pinNav');
     const autoRefreshCheckbox = document.getElementById('autoRefresh');
+    const increaseFontSizeBtn = document.getElementById('increaseFontSize');
+    const decreaseFontSizeBtn = document.getElementById('decreaseFontSize');
+    const increaseLineHeightBtn = document.getElementById('increaseLineHeight');
+    const decreaseLineHeightBtn = document.getElementById('decreaseLineHeight');
 
     if (prevButton) {
         prevButton.addEventListener('click', (e) => {
@@ -234,6 +364,11 @@ function renderNavigation() {
         });
     }
 
+    if (increaseFontSizeBtn) increaseFontSizeBtn.addEventListener('click', increaseFontSize);
+    if (decreaseFontSizeBtn) decreaseFontSizeBtn.addEventListener('click', decreaseFontSize);
+    if (increaseLineHeightBtn) increaseLineHeightBtn.addEventListener('click', increaseLineHeight);
+    if (decreaseLineHeightBtn) decreaseLineHeightBtn.addEventListener('click', decreaseLineHeight);
+
     // 네비게이션 표시/숨김 처리
     setupNavigationVisibility();
 
@@ -256,25 +391,25 @@ function toggleFullscreen() {
 }
 
 // 글자 크기와 행간 관련 전역 변수
-let currentFontSize = 100; // 기본 크기를 100%로 설정
+let currentFontSize = 16; // 기본 크기를 16px로 설정
 let currentLineHeight = 160; // 기본 행간을 160%로 설정
-const fontSizeStep = 10; // 10% 단위로 조절
+const fontSizeStep = 2; // 2px 단위로 조절
 const lineHeightStep = 10; // 10% 단위로 조절
 
 // 글자 크기 조절 함수
 function increaseFontSize() {
-    if (currentFontSize < 150) {
+    if (currentFontSize < 40) {
         currentFontSize += fontSizeStep;
-        updateTextStyle();
         saveCurrentStyle(); // 설정 저장 추가
+        updateTextStyle();
     }
 }
 
 function decreaseFontSize() {
-    if (currentFontSize > 70) {
+    if (currentFontSize > 10) {
         currentFontSize -= fontSizeStep;
-        updateTextStyle();
         saveCurrentStyle(); // 설정 저장 추가
+        updateTextStyle();
     }
 }
 
@@ -282,17 +417,26 @@ function decreaseFontSize() {
 function increaseLineHeight() {
     if (currentLineHeight < 200) {
         currentLineHeight += lineHeightStep;
-        updateTextStyle();
         saveCurrentStyle(); // 설정 저장 추가
+        updateTextStyle();
     }
 }
 
 function decreaseLineHeight() {
     if (currentLineHeight > 120) {
         currentLineHeight -= lineHeightStep;
-        updateTextStyle();
         saveCurrentStyle(); // 설정 저장 추가
+        updateTextStyle();
     }
+}
+
+// 글자 크기/행간 스타일 적용 함수
+function updateTextStyle() {
+    const slideTexts = document.querySelectorAll('.slide-text');
+    slideTexts.forEach(text => {
+        text.style.fontSize = `${currentFontSize}px`;
+        text.style.lineHeight = `${currentLineHeight / 100}`;
+    });
 }
 
 // 현재 스타일 저장 함수
@@ -406,17 +550,6 @@ function setupNavigationVisibility() {
     const navigation = document.querySelector('.navigation');
     const navTriggerArea = document.querySelector('.nav-trigger-area');
 
-    function showNavigation() {
-        if (!navigation) return;
-        clearTimeout(navHideTimeout);
-        navigation.classList.add('show');
-    }
-
-    function hideNavigation() {
-        if (!navigation || isPinned) return;
-        navigation.classList.remove('show');
-    }
-
     function hideNavigationWithDelay() {
         if (isPinned) return;
         clearTimeout(navHideTimeout);
@@ -488,6 +621,44 @@ async function loadNavigationSettings() {
 // 다크모드 관련 변수와 함수
 let isDarkMode = false;
 
+// 색상 반전 함수 (HEX, RGB 지원)
+function invertColor(hexOrRgb) {
+    function hexToRgb(hex) {
+        hex = hex.replace('#', '');
+        if (hex.length === 3) hex = hex.split('').map(x => x + x).join('');
+        const num = parseInt(hex, 16);
+        return [num >> 16, (num >> 8) & 255, num & 255];
+    }
+    let r, g, b;
+    if (hexOrRgb.startsWith('rgb')) {
+        [r, g, b] = hexOrRgb.match(/\d+/g).map(Number);
+    } else if (hexOrRgb.startsWith('#')) {
+        [r, g, b] = hexToRgb(hexOrRgb);
+    } else {
+        // 색상명 등은 무시
+        return hexOrRgb;
+    }
+    return `rgb(${255 - r}, ${255 - g}, ${255 - b})`;
+}
+
+// column-content 내부 배경색 반전/복원
+function updateColumnContentBgForDarkMode(isDark) {
+    document.querySelectorAll('.column-content *').forEach(el => {
+        const bg = el.style.background || el.style.backgroundColor;
+        if (bg) {
+            if (isDark) {
+                el.dataset.origBg = bg;
+                el.style.background = invertColor(bg);
+                el.style.backgroundColor = invertColor(bg);
+            } else if (el.dataset.origBg) {
+                el.style.background = el.dataset.origBg;
+                el.style.backgroundColor = el.dataset.origBg;
+                delete el.dataset.origBg;
+            }
+        }
+    });
+}
+
 // 다크모드 토글 함수
 async function toggleDarkMode() {
     isDarkMode = !isDarkMode;
@@ -500,6 +671,9 @@ async function toggleDarkMode() {
         document.documentElement.setAttribute('data-theme', 'light');
         darkModeButton.innerHTML = '🌙 다크모드';
     }
+    
+    // column-content 배경색 반전 적용
+    updateColumnContentBgForDarkMode(isDarkMode);
     
     // 설정 저장
     try {
@@ -573,6 +747,10 @@ async function refreshData(isAutoRefresh = false) {
                     throw new Error("테이블을 찾을 수 없습니다.");
                 }
 
+                // 헤더 행에서 컬럼 제목 추출
+                const headerRow = table.querySelector("tr");
+                const columnTitles = Array.from(headerRow.querySelectorAll("th, td")).map(cell => cell.innerText.trim());
+
                 // 모든 행 가져오기 (첫 번째 행 제외)
                 const rows = Array.from(table.querySelectorAll("tr")).slice(1);
                 if (rows.length === 0) {
@@ -585,7 +763,7 @@ async function refreshData(isAutoRefresh = false) {
                     const isHeader = firstCell.tagName.toLowerCase() === "th";
                     
                     const cells = Array.from(row.querySelectorAll("th, td"));
-                    const rowData = cells.map(cell => cell.innerText.trim());
+                    const rowData = cells.map(cell => cell.innerHTML.trim());
 
                     return {
                         isHeader,
@@ -595,7 +773,7 @@ async function refreshData(isAutoRefresh = false) {
                     };
                 });
 
-                return { pageTitle, contents };
+                return { pageTitle, columnTitles, contents };
             }
         });
 
@@ -642,12 +820,14 @@ async function refreshData(isAutoRefresh = false) {
 document.addEventListener('DOMContentLoaded', async () => {
     try {
         const data = await chrome.storage.local.get('autoRefresh');
+        const autoRefreshCheckbox = document.getElementById('autoRefresh');
         if (data.autoRefresh !== undefined) {
             autoRefresh = data.autoRefresh;
-            const autoRefreshCheckbox = document.getElementById('autoRefresh');
-            if (autoRefreshCheckbox) {
-                autoRefreshCheckbox.checked = autoRefresh;
-            }
+            if (autoRefreshCheckbox) autoRefreshCheckbox.checked = autoRefresh;
+        } else {
+            // storage에 값이 없으면 기본값 true로 체크
+            autoRefresh = true;
+            if (autoRefreshCheckbox) autoRefreshCheckbox.checked = true;
         }
     } catch (err) {
         console.error('자동 새로고침 설정 로드 오류:', err);
@@ -685,10 +865,23 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
 
-    // 키보드 네비게이션 설정
+    // 키보드 네비게이션 및 단축키 설정
     document.addEventListener('keydown', (e) => {
         if (e.key === 'ArrowRight') slideNavigation.next();
         if (e.key === 'ArrowLeft') slideNavigation.prev();
+        if (e.key === '+') increaseFontSize();
+        if (e.key === '-') decreaseFontSize();
+        if (e.key === 'a' || e.key === 'A') increaseLineHeight();
+        if (e.key === 'z' || e.key === 'Z') decreaseLineHeight();
+        if (e.key === 'f' || e.key === 'F') toggleFullscreen();
+        if (e.key === 'd' || e.key === 'D') toggleDarkMode();
+        if (e.key === 'n' || e.key === 'N') {
+            const navigation = document.querySelector('.navigation');
+            if (navigation) navigation.classList.toggle('show');
+        }
+        if (e.key === 'r' || e.key === 'R') {
+            refreshData();
+        }
     });
   });
   
